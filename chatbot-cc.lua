@@ -1,9 +1,7 @@
--- CC: Tweaked ChatBot using Advanced Peripherals' chatBox
--- Place this on a computer with a chatBox attached
-
-local chatBox = peripheral.find("chatBox")
+-- Replace "left" with your chatBox's side
+local chatBox = peripheral.wrap("right")
 if not chatBox then
-    error("chatBox peripheral not found! Attach one to the computer.")
+    error("chatBox peripheral not found on the specified side!")
 end
 
 while true do
