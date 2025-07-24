@@ -1,8 +1,6 @@
---[[
-Nano-like Code Editor for CC: Tweaked
-Single-file all-in-one port inspired by VedaRePowered/lua-nano
-Supports Ctrl+Shift+C (Copy) and Ctrl+Shift+V (Paste)
-]]
+-- Nano-like Editor for CC: Tweaked
+-- Backslash (\) commands for save, quit, copy, paste, cut, uncut
+-- Inspired by https://github.com/VedaRePowered/lua-nano
 
 local args = {...}
 local filename = args[1]
@@ -13,7 +11,7 @@ local cursor_x, cursor_y = 1, 1
 local scroll_y = 0
 local status_msg = ""
 local running = true
-local selection = nil -- {x1, y1, x2, y2}
+local cut_buffer = ""
 
 -- File IO
 local function load_file(fname)
@@ -73,6 +71,7 @@ end
 
 local function move_cursor(dx, dy)
     cursor_y = clamp(cursor_y + dy, 1, #lines)
+    cursor_x = clamp(cursor_x, 1, #lines[cursor_y]+1)
     cursor_x = clamp(cursor_x + dx, 1, #lines[cursor_y]+1)
 end
 
@@ -112,28 +111,12 @@ local function enter()
     cursor_x = 1
 end
 
--- Copy/paste helpers
-local function copy_selection()
-    if not selection then status_msg = "No selection!" return end
-    local x1, y1, x2, y2 = table.unpack(selection)
-    if y1 > y2 or (y1 == y2 and x1 > x2) then x1,y1,x2,y2 = x2,y2,x1,y1 end
-    local clip = {}
-    for y = y1, y2 do
-        local l = lines[y]
-        if y == y1 and y == y2 then
-            table.insert(clip, l:sub(x1, x2-1))
-        elseif y == y1 then
-            table.insert(clip, l:sub(x1))
-        elseif y == y2 then
-            table.insert(clip, l:sub(1, x2-1))
-        else
-            table.insert(clip, l)
-        end
-    end
-    local text = table.concat(clip, "\n")
+-- Copy/Paste/Cut
+local function copy_line()
+    local l = lines[cursor_y]
     if clipboard_supported then
-        term.setClipboard(text)
-        status_msg = "Copied selection to clipboard!"
+        term.setClipboard(l)
+        status_msg = "Copied line to clipboard!"
     else
         status_msg = "Clipboard not supported!"
     end
@@ -143,7 +126,7 @@ local function paste_clipboard()
     if clipboard_supported then
         local text = term.getClipboard()
         if text then
-            for line in text:gmatch("([^\n]*)\n?") do
+            for line in (text .. "\n"):gmatch("([^\n]*)\n") do
                 if line then
                     for i = 1, #line do
                         insert_char(line:sub(i,i))
@@ -158,15 +141,30 @@ local function paste_clipboard()
     end
 end
 
+local function cut_line()
+    cut_buffer = lines[cursor_y]
+    table.remove(lines, cursor_y)
+    if #lines == 0 then lines[1] = "" end
+    cursor_y = clamp(cursor_y, 1, #lines)
+    cursor_x = clamp(cursor_x, 1, #lines[cursor_y]+1)
+    status_msg = "Cut line."
+end
+
+local function uncut_line()
+    table.insert(lines, cursor_y, cut_buffer)
+    status_msg = "Uncut (pasted) line."
+end
+
 -- Main loop
 if filename and fs.exists(filename) then
     lines = load_file(filename)
 end
 
 redraw()
+local in_command_mode = false
 
 while running do
-    local ev, p1, p2, p3 = os.pullEvent()
+    local ev, p1 = os.pullEvent()
     if ev == "key" then
         if p1 == keys.left then move_cursor(-1,0)
         elseif p1 == keys.right then move_cursor(1,0)
@@ -175,34 +173,40 @@ while running do
         elseif p1 == keys.backspace then backspace()
         elseif p1 == keys.enter then enter()
         elseif p1 == keys.tab then insert_char("\t")
-        elseif p1 == keys.leftCtrl then -- ignore
-        elseif p1 == keys.rightCtrl then -- ignore
-        elseif p1 == keys.leftShift then -- ignore
-        elseif p1 == keys.rightShift then -- ignore
-        elseif p1 == keys.s and p2 and (p2 == "leftCtrl" or p2 == "rightCtrl") then
-            save_file(filename or "untitled.txt")
-        elseif p1 == keys.q and p2 and (p2 == "leftCtrl" or p2 == "rightCtrl") then
-            running = false
-        end
     elseif ev == "char" then
-        insert_char(p1)
+        if in_command_mode then
+            if p1 == "s" then
+                save_file(filename or "untitled.txt")
+            elseif p1 == "q" then
+                running = false
+            elseif p1 == "c" then
+                copy_line()
+            elseif p1 == "v" then
+                paste_clipboard()
+            elseif p1 == "k" then
+                cut_line()
+            elseif p1 == "u" then
+                uncut_line()
+            else
+                status_msg = "Unknown command: \\" .. p1
+            end
+            in_command_mode = false
+        elseif p1 == "\\" then
+            in_command_mode = true
+            status_msg = "Command mode: s(save), q(quit), c(copy line), v(paste clipboard), k(cut line), u(uncut line)"
+        else
+            insert_char(p1)
+        end
     elseif ev == "paste" then
-        -- Paste event: term.getClipboard() is preferred but paste event is fallback
+        -- Fallback paste event if supported
         local text = tostring(p1)
-        for line in text:gmatch("([^\n]*)\n?") do
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
             if line then
                 for i = 1, #line do
                     insert_char(line:sub(i,i))
                 end
                 enter()
             end
-        end
-    elseif ev == "key_up" then
-        -- Detect Ctrl+Shift+C/Paste
-        if p1 == keys.c and p2 and p3 and ((p2 == "leftCtrl" or p2 == "rightCtrl") and (p3 == "leftShift" or p3 == "rightShift")) then
-            copy_selection()
-        elseif p1 == keys.v and p2 and p3 and ((p2 == "leftCtrl" or p2 == "rightCtrl") and (p3 == "leftShift" or p3 == "rightShift")) then
-            paste_clipboard()
         end
     end
 
