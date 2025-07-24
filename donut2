@@ -1,0 +1,107 @@
+local url = "https://github.com/apersonwhomakesstuff/apersonwhomakesstuff/raw/refs/heads/cc/on-and-on-1727308858-tLh4ktBdt5.dfpwm"
+local filename = "on-and-on.dfpwm"
+local speaker = peripheral.find("speaker")
+local sin, cos, floor, max = math.sin, math.cos, math.floor, math.max
+
+if not speaker then
+    print("No speaker attached!")
+    return
+end
+
+-- Download file if not present
+if not fs.exists(filename) then
+    print("Downloading audio file...")
+    local response = http.get(url)
+    if not response then
+        print("Failed to download audio file.")
+        return
+    end
+    local f = fs.open(filename, "wb")
+    f.write(response.readAll())
+    f.close()
+    response.close()
+end
+
+-- Donut animation coroutine
+local function donut()
+    local A, B = 0, 0
+    while true do
+        local termWidth, termHeight = term.getSize()
+        local bufferSize = termWidth * termHeight
+        local z = {}
+        local b = {}
+
+        for i = 0, bufferSize - 1 do z[i] = 0.0 end
+        for i = 0, bufferSize - 1 do b[i] = " " end
+
+        for j = 0, 6.28, 0.07 do
+            for i = 0, 6.28, 0.07 do
+                local sini = sin(i)
+                local cosj = cos(j)
+                local sinA = sin(A)
+                local sinj = sin(j)
+                local cosA = cos(A)
+                local cosj2 = cosj + 2
+                local mess = 1 / (sini * cosj2 * sinA + sinj * cosA + 5)
+                local cosi = cos(i)
+                local cosB = cos(B)
+                local sinB = sin(B)
+                local t = sini * cosj2 * cosA - sinj * sinA
+
+                local x = floor(termWidth / 2 + (termWidth / 2.7) * mess * (cosi * cosj2 * cosB - t * sinB))
+                local y = floor(termHeight / 2 + (termHeight / 2.2) * mess * (cosi * cosj2 * sinB + t * cosB))
+                local o = floor(x + termWidth * y)
+                local N = floor(
+                    8 *
+                    ((sinj * sinA - sini * cosj * cosA) * cosB - sini * cosj * sinA - sinj * cosA - cosi * cosj * sinB)
+                )
+
+                if y < termHeight and y > 0 and x > 0 and x < termWidth and mess > z[o] then
+                    z[o] = mess
+                    local n = max(N, 1)
+                    b[o] = (".,-~:;=!*#$@"):sub(n, n)
+                end
+            end
+        end
+
+        term.setCursorPos(1, 1)
+        for y = 0, termHeight - 1 do
+            local line = ""
+            for x = 0, termWidth - 1 do
+                local k = x + termWidth * y
+                line = line .. (b[k] or " ")
+            end
+            print(line)
+        end
+
+        A = A + 0.04
+        B = B + 0.02
+        os.sleep(0.01)
+        coroutine.yield()
+    end
+end
+
+-- Music play coroutine
+local function music()
+    local decoder = require("cc.audio.dfpwm").make_decoder()
+    while true do
+        local file = fs.open(filename, "rb")
+        while true do
+            local chunk = file.read(16 * 1024)
+            if not chunk then break end
+            local buffer = decoder(chunk)
+            while not speaker.playAudio(buffer) do
+                os.pullEvent("speaker_audio_empty")
+            end
+        end
+        file.close()
+    end
+end
+
+local donut_co = coroutine.create(donut)
+local music_co = coroutine.create(music)
+
+while true do
+    coroutine.resume(donut_co)
+    coroutine.resume(music_co)
+end
