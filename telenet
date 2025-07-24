@@ -1,0 +1,85 @@
+--[[ 
+telenet.lua - A simple CC: Tweaked app for connecting to Telenet ASCII hosts
+Usage: telenet <host> <port>
+Example: telenet towel.blinkenlights.nl 23
+
+This program uses the CC: Tweaked socket API (available since 1.100).
+Make sure your computer has an internet peripheral (like advanced computer or wired modem + HTTP enabled).
+]]
+
+local args = {...}
+
+if #args < 2 then
+    print("Usage: telenet <host> <port>")
+    print("Example: telenet towel.blinkenlights.nl 23")
+    return
+end
+
+local host = args[1]
+local port = tonumber(args[2])
+
+if not port then
+    print("Invalid port: " .. tostring(args[2]))
+    return
+end
+
+print("Connecting to " .. host .. ":" .. port .. " ...")
+local ok, socket = pcall(function() return require("socket").connect(host, port) end)
+if not ok or not socket then
+    print("Failed to connect: " .. (socket or "Unknown error"))
+    return
+end
+
+print("Connected! Press Ctrl+T to exit.")
+
+-- Set terminal to raw mode for better experience
+if term.isColor() then term.setBackgroundColor(colors.black) end
+term.setCursorBlink(true)
+
+local running = true
+
+-- Read from socket and write to terminal
+local function readSocket()
+    while running do
+        local s, data = pcall(function() return socket:read() end)
+        if not s or not data then
+            running = false
+            break
+        end
+        if data ~= "" then
+            io.write(data)
+            io.flush()
+        end
+        sleep(0.05)
+    end
+end
+
+-- Read user input and send to socket
+local function writeSocket()
+    while running do
+        local event, key = os.pullEvent()
+        if event == "char" then
+            socket:write(key)
+        elseif event == "key" then
+            -- Ctrl+T to exit
+            if key == keys.t and (os.pullEventRaw("key_up") == keys.leftCtrl or os.pullEventRaw("key_up") == keys.rightCtrl) then
+                running = false
+                break
+            elseif key == keys.enter then
+                socket:write("\r\n")
+            elseif key == keys.backspace then
+                socket:write("\b")
+            end
+        elseif event == "terminate" then
+            running = false
+            break
+        end
+    end
+end
+
+-- Run both in parallel
+parallel.waitForAny(readSocket, writeSocket)
+
+-- Close the socket
+socket:close()
+print("\nDisconnected.")
