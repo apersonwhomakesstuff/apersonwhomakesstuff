@@ -1,0 +1,130 @@
+-- Stupid Cube renderer for Minecraft CC: Tweaked
+-- Converts C-inspired Lua cube code to run on ComputerCraft with terminal sizing
+
+-- Get the actual terminal size
+local WIDTH, HEIGHT = term.getSize()
+local ASPECT = WIDTH / HEIGHT
+
+-- 3D/2D points as tables
+local function vec3(x, y, z)
+    return {x, y, z}
+end
+
+local function vec2(x, y)
+    return {x, y}
+end
+
+-- Rotation matrices (X, Y, Z)
+local function rotate_x(point, angle)
+    local y = point[2] * math.cos(angle) + point[3] * math.sin(angle)
+    local z = -point[2] * math.sin(angle) + point[3] * math.cos(angle)
+    point[2], point[3] = y, z
+end
+
+local function rotate_y(point, angle)
+    local x = point[1] * math.cos(angle) - point[3] * math.sin(angle)
+    local z = point[1] * math.sin(angle) + point[3] * math.cos(angle)
+    point[1], point[3] = x, z
+end
+
+local function rotate_z(point, angle)
+    local x = point[1] * math.cos(angle) + point[2] * math.sin(angle)
+    local y = -point[1] * math.sin(angle) + point[2] * math.cos(angle)
+    point[1], point[2] = x, y
+end
+
+-- Project 3D point to 2D screen
+local function project(point, scale)
+    local camera_distance = 4
+    local factor = (camera_distance / (camera_distance + point[3])) * scale
+    local px = math.floor(point[1] * factor * WIDTH / ASPECT + WIDTH / 2)
+    local py = math.floor(point[2] * factor * HEIGHT / 2 + HEIGHT / 2)
+    return vec2(px, py)
+end
+
+-- Rotate all cube points
+local function rotate_cube(points, angle)
+    for i = 1, 8 do
+        rotate_x(points[i], angle)
+        rotate_y(points[i], angle)
+        rotate_z(points[i], angle)
+    end
+end
+
+-- Bresenham's line algorithm
+local function draw_line(a, b, char, screen)
+    local x0, y0 = a[1], a[2]
+    local x1, y1 = b[1], b[2]
+    local dx = math.abs(x1 - x0)
+    local dy = math.abs(y1 - y0)
+    local sx = x0 < x1 and 1 or -1
+    local sy = y0 < y1 and 1 or -1
+    local err = math.floor((dx > dy and dx or -dy) / 2)
+
+    while true do
+        if x0 >= 1 and x0 <= WIDTH and y0 >= 1 and y0 <= HEIGHT then
+            screen[y0][x0] = char
+        end
+        if x0 == x1 and y0 == y1 then break end
+        local e2 = err
+        if e2 > -dx then
+            err = err - dy
+            x0 = x0 + sx
+        end
+        if e2 < dy then
+            err = err + dx
+            y0 = y0 + sy
+        end
+    end
+end
+
+local function draw_face(p, i0, i1, i2, i3, char, screen)
+    draw_line(p[i0], p[i1], char, screen)
+    draw_line(p[i1], p[i2], char, screen)
+    draw_line(p[i2], p[i3], char, screen)
+    draw_line(p[i3], p[i0], char, screen)
+end
+
+local function draw_cube(points, scale)
+    local screen = {}
+    for i = 1, HEIGHT do
+        screen[i] = {}
+        for j = 1, WIDTH do
+            screen[i][j] = " "
+        end
+    end
+
+    local projected_points = {}
+    for i = 1, 8 do
+        projected_points[i] = project(points[i], scale)
+    end
+
+    draw_face(projected_points, 1,2,3,4, "#", screen)
+    draw_face(projected_points, 5,6,7,8, "@", screen)
+    draw_face(projected_points, 1,2,6,5, "-", screen)
+    draw_face(projected_points, 3,4,8,7, "=", screen)
+    draw_face(projected_points, 1,4,8,5, "L", screen)
+    draw_face(projected_points, 2,3,7,6, "*", screen)
+
+    term.setCursorPos(1,1)
+    for i = 1, HEIGHT do
+        for j = 1, WIDTH do
+            term.write(screen[i][j])
+        end
+        term.write("\n")
+    end
+end
+
+local cube = {
+    vec3(-1, -1, -1), vec3( 1, -1, -1), vec3( 1,  1, -1), vec3(-1,  1, -1),
+    vec3(-1, -1,  1), vec3( 1, -1,  1), vec3( 1,  1,  1), vec3(-1,  1,  1)
+}
+
+local angle, scale = 0.03, 0.4
+
+-- Main loop (ESC/Enter/Space abort if you want to be less stupid)
+while true do
+    rotate_cube(cube, angle)
+    draw_cube(cube, scale)
+    sleep(0.03)
+end
